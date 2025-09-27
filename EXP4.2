@@ -1,0 +1,126 @@
+DROP TABLE IF exists StudentEnrollments;
+
+-- Create table with unique constraint
+CREATE TABLE StudentEnrollments (
+    enrollment_id INT AUTO_INCREMENT PRIMARY KEY,
+    student_name VARCHAR(100) NOT NULL,
+    course_id VARCHAR(10) NOT NULL,
+    enrollment_date DATE NOT NULL,
+    CONSTRAINT unique_student_course UNIQUE (student_name, course_id)
+);
+
+-- Insert sample data
+INSERT INTO StudentEnrollments (student_name, course_id, enrollment_date)
+VALUES 
+('Ashish', 'CSE101', '2024-07-01'),
+('Smaran', 'CSE102', '2024-07-01'),
+('Vaibhav', 'CSE101', '2024-07-01');
+
+SELECT * FROM StudentEnrollments;
+
+-- ============================================
+-- PART A: Prevent Duplicate Enrollments
+-- ============================================
+-- Open two terminals (simulate User A & User B)
+
+-- User A
+START TRANSACTION;
+INSERT INTO StudentEnrollments (student_name, course_id, enrollment_date)
+VALUES ('Ashish', 'CSE101', '2024-07-01');  -- Already exists
+COMMIT;
+
+-- User B
+START TRANSACTION;
+INSERT INTO StudentEnrollments (student_name, course_id, enrollment_date)
+VALUES ('Ashish', 'CSE101', '2024-07-01');
+COMMIT;
+
+-- RESULT: One insert fails with
+-- ERROR 1062 (23000): Duplicate entry 'Ashish-CSE101' for key 'unique_student_course'
+
+-- ============================================
+-- PART B: Row Locking with SELECT FOR UPDATE
+-- ============================================
+-- User A
+START TRANSACTION;
+SELECT * FROM StudentEnrollments
+WHERE student_name = 'Ashish' AND course_id = 'CSE101'
+FOR UPDATE;
+
+-- (Keep transaction open — do NOT commit yet)
+
+-- User B (in another terminal)
+START TRANSACTION;
+UPDATE StudentEnrollments
+SET enrollment_date = '2024-08-01'
+WHERE student_name = 'Ashish' AND course_id = 'CSE101';
+-- User B will be BLOCKED until User A commits/rollbacks.
+
+-- User A finally commits:
+COMMIT;
+
+-- Now User B’s update goes through.
+
+-- ============================================
+-- PART C: Locking Preserves Consistency
+-- ============================================
+
+-- Reset date for Ashish
+UPDATE StudentEnrollments
+SET enrollment_date = '2024-07-01'
+WHERE student_name = 'Ashish' AND course_id = 'CSE101';
+
+-- Without Locking (Race Condition)
+-- ----------------
+-- User A
+START TRANSACTION;
+UPDATE StudentEnrollments
+SET enrollment_date = '2024-09-01'
+WHERE student_name = 'Ashish' AND course_id = 'CSE101';
+-- (do not commit yet)
+
+-- User B
+START TRANSACTION;
+UPDATE StudentEnrollments
+SET enrollment_date = '2024-10-01'
+WHERE student_name = 'Ashish' AND course_id = 'CSE101';
+COMMIT;
+
+-- Then User A commits:
+COMMIT;
+-- FINAL VALUE: '2024-09-01' (User A overwrote User B’s change)
+
+-- With Locking (Safe Case)
+-- ----------------
+-- Reset date again
+UPDATE StudentEnrollments
+SET enrollment_date = '2024-07-01'
+WHERE student_name = 'Ashish' AND course_id = 'CSE101';
+
+-- User A
+START TRANSACTION;
+SELECT * FROM StudentEnrollments
+WHERE student_name = 'Ashish' AND course_id = 'CSE101'
+FOR UPDATE;
+UPDATE StudentEnrollments
+SET enrollment_date = '2024-09-01'
+WHERE student_name = 'Ashish' AND course_id = 'CSE101';
+-- keep uncommitted
+
+-- User B (simultaneous)
+START TRANSACTION;
+SELECT * FROM StudentEnrollments
+WHERE student_name = 'Ashish' AND course_id = 'CSE101'
+FOR UPDATE;
+-- User B waits here until User A commits
+
+-- User A commits:
+COMMIT;
+
+-- Now User B proceeds:
+UPDATE StudentEnrollments
+SET enrollment_date = '2024-10-01'
+WHERE student_name = 'Ashish' AND course_id = 'CSE101';
+COMMIT;
+
+-- FINAL VALUE: '2024-10-01' applied sequentially after User A’s change

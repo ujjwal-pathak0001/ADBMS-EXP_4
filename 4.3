@@ -1,0 +1,110 @@
+-- ============================================
+-- SETUP
+-- ============================================
+Drop table if exists StudentEnrollments;
+
+CREATE TABLE StudentEnrollments (
+    student_id INT PRIMARY KEY AUTO_INCREMENT,
+    student_name VARCHAR(100) NOT NULL,
+    course_id VARCHAR(10) NOT NULL,
+    enrollment_date DATE NOT NULL
+) ENGINE=InnoDB;  -- Important: InnoDB supports MVCC + transactions
+
+INSERT INTO StudentEnrollments (student_name, course_id, enrollment_date) VALUES
+('Ashish', 'CSE101', '2024-06-01'),
+('Smaran', 'CSE102', '2024-06-01'),
+('Vaibhav', 'CSE103', '2024-06-01');
+
+SELECT * FROM StudentEnrollments;
+
+-- ============================================
+-- PART A: Deadlock Simulation
+-- ============================================
+-- Open TWO terminals (User A & User B)
+
+-- User A
+START TRANSACTION;
+UPDATE StudentEnrollments SET enrollment_date = '2024-07-01' WHERE student_id = 1;
+
+-- (do not commit yet, go to User B)
+
+-- User B
+START TRANSACTION;
+UPDATE StudentEnrollments SET enrollment_date = '2024-07-02' WHERE student_id = 2;
+
+-- Now User A tries to update row 2 (locked by B):
+UPDATE StudentEnrollments SET enrollment_date = '2024-08-01' WHERE student_id = 2;
+
+-- And User B tries to update row 1 (locked by A):
+UPDATE StudentEnrollments SET enrollment_date = '2024-08-02' WHERE student_id = 1;
+
+-- 🔥 DEADLOCK occurs.
+-- MySQL/Postgres automatically chooses one transaction to ROLLBACK:
+-- ERROR 1213 (40001): Deadlock found when trying to get lock; try restarting transaction
+
+-- ============================================
+-- PART B: MVCC Snapshot Read
+-- ============================================
+-- Reset data
+UPDATE StudentEnrollments SET enrollment_date = '2024-06-01' WHERE student_id = 1;
+
+-- User A
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+START TRANSACTION;
+SELECT enrollment_date FROM StudentEnrollments WHERE student_id = 1;
+-- User A sees: 2024-06-01
+
+-- User B (while User A is still inside txn)
+START TRANSACTION;
+UPDATE StudentEnrollments SET enrollment_date = '2024-07-10' WHERE student_id = 1;
+COMMIT;
+
+-- User A (still inside txn)
+SELECT enrollment_date FROM StudentEnrollments WHERE student_id = 1;
+-- User A still sees: 2024-06-01 (old snapshot, thanks to MVCC)
+
+-- User A commits:
+COMMIT;
+
+-- After commit, new queries by User A show the updated value 2024-07-10
+
+-- ============================================
+-- PART C: Locking vs MVCC
+-- ============================================
+
+-- Reset
+UPDATE StudentEnrollments SET enrollment_date = '2024-06-01' WHERE student_id = 1;
+
+-- ---- Case 1: With Locking (non-MVCC style) ----
+-- User A
+START TRANSACTION;
+SELECT * FROM StudentEnrollments WHERE student_id = 1 FOR UPDATE;
+
+-- User B
+START TRANSACTION;
+SELECT enrollment_date FROM StudentEnrollments WHERE student_id = 1;
+-- 🚨 This blocks until User A commits because row is locked.
+
+-- ---- Case 2: With MVCC (default snapshot isolation) ----
+-- Reset
+UPDATE StudentEnrollments SET enrollment_date = '2024-06-01' WHERE student_id = 1;
+
+-- User A
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+START TRANSACTION;
+SELECT enrollment_date FROM StudentEnrollments WHERE student_id = 1;
+-- Sees: 2024-06-01
+
+-- User B
+START TRANSACTION;
+UPDATE StudentEnrollments SET enrollment_date = '2024-07-10' WHERE student_id = 1;
+COMMIT;
+
+-- User A (still inside txn)
+SELECT enrollment_date FROM StudentEnrollments WHERE student_id = 1;
+-- Still sees old snapshot: 2024-06-01
+
+-- User A commits:
+COMMIT;
+
+-- Now both users see the final updated value: 2024-07-10

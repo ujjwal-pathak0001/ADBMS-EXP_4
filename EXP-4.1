@@ -1,0 +1,35 @@
+DROP TABLE IF EXISTS FeePayments;
+
+CREATE TABLE FeePayments (
+    payment_id INT PRIMARY KEY,
+    student_name VARCHAR(100) NOT NULL,
+    amount DECIMAL(10,2) CHECK (amount > 0),
+    payment_date DATE NOT NULL
+);
+
+START TRANSACTION;
+INSERT INTO FeePayments VALUES (1, 'Ashish', 5000.00, '2024-06-01');
+INSERT INTO FeePayments VALUES (2, 'Smaran', 4500.00, '2024-06-02');
+INSERT INTO FeePayments VALUES (3, 'Vaibhav', 5500.00, '2024-06-03');
+COMMIT;
+
+START TRANSACTION;
+INSERT INTO FeePayments VALUES (4, 'Kiran', 4800.00, '2024-06-04');
+ROLLBACK;
+
+START TRANSACTION;
+
+ROLLBACK;
+
+START TRANSACTION;
+INSERT INTO FeePayments VALUES (7, 'Sneha', 4700.00, '2024-06-08');
+INSERT INTO FeePayments VALUES (8, 'Arjun', 4900.00, '2024-06-09');
+ROLLBACK;
+
+INSERT INTO FeePayments VALUES (7, 'Sneha', 4700.00, '2024-06-08')
+    ON DUPLICATE KEY UPDATE student_name=VALUES(student_name), amount=VALUES(amount), payment_date=VALUES(payment_date);
+INSERT INTO FeePayments VALUES (8, 'Arjun', 4900.00, '2024-06-09')
+    ON DUPLICATE KEY UPDATE student_name=VALUES(student_name), amount=VALUES(amount), payment_date=VALUES(payment_date);
+COMMIT;
+
+SELECT * FROM FeePayments;
